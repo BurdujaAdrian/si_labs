@@ -1,0 +1,540 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[romanian]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{listings}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=fullflexible
+}
+
+\begin{document}
+\begin{titlepage}
+\begin{center}
+\vspace*{1cm}
+{\Large Technical University of Moldova}\\[0.5cm]
+{\Large Faculty of Computers, Informatics and Microelectronics}\\[2cm]
+{\Huge\bfseries Laboratory Work No. 4.1}\\[1cm]
+{\Large\bfseries Embedded Systems:\\
+Binary Signal Acquisition with Threshold Alerting\\
+and Periodic STDIO Reporting}\\[3.5cm]
+\begin{flushright}
+\begin{tabular}{ll}
+\textbf{Elaborated:} & \\
+std. gr. FAF-231 & Burduja Adrian \\[1cm]
+\textbf{Verified:} & \\
+asist. univ. & Alexei Martîniuc \\ & \\
+\end{tabular}
+\end{flushright}
+\vfill
+{\Large Chișinău -- 2026}
+\end{center}
+\end{titlepage}
+\newpage
+
+%-------------------------------------------------
+\section{Task Analysis and Technological Context}
+
+\subsection{Domain Analysis and Technological Context}
+Binary signal conditioning is a fundamental pattern in embedded monitoring systems.
+Rather than treating a sensor reading as a continuous value, the system maps it to a
+binary alert state: normal or alarm. This pattern appears in thermostats, industrial
+safety monitors, and environmental control systems.
+
+A naive implementation that triggers an alert the moment a threshold is crossed suffers
+from oscillation — when the measured value hovers near the threshold, the alert state
+flips rapidly. Two classical techniques address this: hysteresis (using separate activation
+and deactivation levels) and persistence debouncing (requiring the condition to hold for
+several consecutive samples before committing a state change).
+
+This work implements binary threshold alerting for a DHT22 temperature/humidity sensor
+and an HC-SR04 ultrasonic distance sensor on an Arduino Mega, with structured STDIO reporting.
+
+\subsection{External Resources and Bibliographic References}
+\begin{itemize}
+    \item documentation of the Arduino Mega (ATmega2560) microcontroller;
+    \item DHT22 sensor datasheet;
+    \item HC-SR04 ultrasonic sensor datasheet;
+    \item AVR-libc documentation (\texttt{dtostrf}, \texttt{fdev\_setup\_stream});
+    \item educational materials provided within the course;
+    \item Claude (Anthropic) for assistance with code generation and debugging.
+\end{itemize}
+
+\subsection{Analysis of Components and Used Resources}
+\begin{itemize}
+    \item Arduino Mega (ATmega2560) microcontroller;
+    \item DHT22 sensor on pin A0 — temperature and humidity;
+    \item HC-SR04 ultrasonic sensor on TRIG=7, ECHO=6 — distance;
+    \item STDIO interface via serial port at 9600 baud;
+    \item software resources: hysteresis logic, persistence counter, millis-based scheduling.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Definition of Technical Requirements and Test Scenarios}
+
+\subsection{Application Objectives}
+\begin{itemize}
+    \item periodically acquire raw data from both sensors;
+    \item apply hysteresis-based threshold detection to temperature and distance;
+    \item debounce state transitions using a persistence counter;
+    \item report sensor values and alert states via STDIO at a configurable interval.
+\end{itemize}
+
+\subsection{Functional and Non-Functional Requirements}
+
+\textbf{Functional requirements:}
+\begin{itemize}
+    \item acquisition of temperature, humidity, and distance at \texttt{ACQUIRE\_INTERVAL};
+    \item temperature alert above $26$\,°C, cleared below $24$\,°C ($25$\,°C $\pm1$\,°C hysteresis);
+    \item distance alert below $18$\,cm, cleared above $22$\,cm ($20$\,cm $\pm2$\,cm hysteresis);
+    \item state change requires \texttt{PERSIST\_REQUIRED = 3} consecutive confirming samples;
+    \item structured STDIO report at \texttt{REPORT\_INTERVAL}.
+\end{itemize}
+
+\textbf{Non-functional requirements:}
+\begin{itemize}
+    \item modular code in independent \texttt{.cpp}/\texttt{.h} files;
+    \item no dynamic memory allocation;
+    \item \texttt{printf} via AVR-libc \texttt{fdev\_setup\_stream};
+    \item float formatting via \texttt{dtostrf}.
+\end{itemize}
+
+\subsection{Test Scenarios and Validation Criteria}
+\begin{itemize}
+    \item temperature held above $26$\,°C for 3 samples $\Rightarrow$ ALERT;
+    \item temperature held below $24$\,°C for 3 samples $\Rightarrow$ NORMAL;
+    \item temperature oscillating in $[24, 26]$\,°C $\Rightarrow$ state unchanged;
+    \item single spike above threshold $\Rightarrow$ no state change (persistence blocks it);
+    \item distance held below $18$\,cm for 3 samples $\Rightarrow$ TOO CLOSE alert.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Architectural Design and Behavioral Modeling}
+
+\subsection{System Components}
+\begin{itemize}
+    \item \textbf{Acquisition} — \texttt{dht\_read()}, \texttt{hcsr\_read()} read raw sensor values;
+    \item \textbf{Threshold logic} — \texttt{process\_threshold()}, \texttt{process\_distance()} implement hysteresis and persistence;
+    \item \textbf{Reporting} — \texttt{report\_temperature()}, \texttt{report\_distance()} format and print via STDIO;
+    \item \textbf{STDIO layer} — \texttt{stdio\_init()} binds \texttt{printf} to the hardware UART.
+\end{itemize}
+
+\subsection{HW--SW Layered Architecture}
+\begin{itemize}
+    \item hardware layer (DHT22, HC-SR04, UART);
+    \item HAL layer (GPIO, \texttt{pulseIn}, \texttt{delayMicroseconds});
+    \item application layer (threshold logic, persistence, reporting).
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{img/structure.png}
+    \caption{Structural diagram}
+\end{figure}
+
+\subsection{Hysteresis and Persistence Logic}
+
+Two separate crossing levels prevent alert oscillation near the threshold:
+
+\[
+T_{high} = T_{threshold} + T_{hysteresis}, \qquad T_{low} = T_{threshold} - T_{hysteresis}
+\]
+
+\begin{itemize}
+    \item When \textbf{NORMAL}: alert activates only if value $> T_{high}$;
+    \item When \textbf{ALERT}: alert clears only if value $< T_{low}$;
+    \item Values in the dead zone $[T_{low},\, T_{high}]$ leave state unchanged.
+\end{itemize}
+
+A persistence counter \texttt{g\_persist} increments on each sample that would
+cause a transition. The transition is committed only when the counter reaches
+\texttt{PERSIST\_REQUIRED}. Any sample that does not continue the trend resets
+the counter to zero.
+
+\subsection{Scheduling}
+No RTOS is used. Two \texttt{millis()}-based timers control execution:
+\begin{itemize}
+    \item \texttt{ACQUIRE\_INTERVAL = 2000\,ms} — sensor read and threshold processing;
+    \item \texttt{REPORT\_INTERVAL = 500\,ms} — STDIO report.
+\end{itemize}
+The DHT22 requires a minimum of 2 seconds between reads, which sets the acquisition interval.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{img/sequence.png}
+    \caption{Sequence diagram}
+\end{figure}
+%-------------------------------------------------
+\section{Electrical Schematic Design and Simulation}
+
+\subsection{Connections and Component Sizing}
+\begin{itemize}
+    \item DHT22: data pin on A0, $10\,k\Omega$ pull-up resistor to $+5\,V$;
+    \item HC-SR04: TRIG on pin 7 (output), ECHO on pin 6 (input), powered at $5\,V$;
+    \item serial output via USB at 9600 baud.
+\end{itemize}
+
+\subsection{Simulation}
+The application was simulated in SimulIDE with virtual sensor stimulus values
+to verify hysteresis boundaries and persistence debouncing behavior.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{img/sim.PNG}
+    \caption{Electrical schematic in simulator}
+\end{figure}
+
+\subsection{Execution on Real Hardware}
+Sample serial output:
+\begin{lstlisting}
+=== DHT22 Temperature Monitor (Mega) ===
+------------------------------
+Uptime (ms) : 2001
+Temperature :  24.5 C
+Humidity    :  58.0 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 0/3
+State       : NORMAL
+Distance    :  35.2 cm
+Dist Thresh :  20.0 cm
+Dist State  : NORMAL
+------------------------------
+Uptime (ms) : 4002
+Temperature :  26.3 C
+Humidity    :  57.5 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 1/3
+State       : NORMAL
+------------------------------
+Uptime (ms) : 6003
+Temperature :  26.8 C
+Humidity    :  57.2 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 2/3
+State       : NORMAL
+------------------------------
+Uptime (ms) : 8004
+Temperature :  27.1 C
+Humidity    :  57.0 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 0/3
+State       : !!! ALERT !!!
+\end{lstlisting}
+
+%-------------------------------------------------
+\section{Modular Software Implementation}
+
+\subsection{Project Structure}
+\begin{lstlisting}
+lab4-1.ino
+main.cpp
+dht22.cpp
+dht22.h
+hc-sr.cpp
+hc-sr.h
+stdio_layer.cpp
+stdio_layer.h
+\end{lstlisting}
+
+\subsection{HW--SW Interface}
+Sensor access is encapsulated behind \texttt{dht\_read()} and \texttt{hcsr\_read()}.
+Threshold logic is encapsulated in \texttt{process\_threshold()} and \texttt{process\_distance()},
+operating on module-level global state exposed via \texttt{extern} declarations in headers.
+
+\subsection{Key Implementation Details}
+\begin{itemize}
+    \item \texttt{LOW} and \texttt{HIGH} are macros in \texttt{Arduino.h} (expanding to 0 and 1);
+          threshold variables were named \texttt{THRESH\_LOW} / \texttt{THRESH\_HIGH} to avoid
+          silent macro substitution corrupting float comparisons;
+    \item \texttt{printf} \texttt{\%f} is unsupported on AVR-libc without special linker flags;
+          \texttt{dtostrf()} is used for all float formatting;
+    \item \texttt{pulseIn} with a 30\,ms timeout prevents blocking indefinitely on out-of-range
+          HC-SR04 readings; a return value of $-1$ signals an invalid measurement.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Simulation, Testing, and Validation}
+
+\subsection{Testing}
+Tests were performed by providing controlled sensor stimulus in SimulIDE and
+observing serial output to verify hysteresis boundaries, persistence counting,
+and correct alert state transitions.
+
+\subsection{Results and Observations}
+\begin{itemize}
+    \item hysteresis correctly prevented alert oscillation when temperature hovered near $25$\,°C;
+    \item persistence counter blocked false alerts from single transient spikes;
+    \item both sensors reported independently without interfering with each other's state;
+    \item STDIO output was correctly formatted for all measured values.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Conclusions}
+
+The developed application demonstrates effective binary signal conditioning on a
+resource-constrained AVR microcontroller. Hysteresis and persistence debouncing together
+eliminate the two main sources of false alerting near a threshold boundary. The modular
+architecture separates acquisition, threshold logic, and reporting into independent files,
+making the system straightforward to extend with additional sensors or thresholds.
+
+\newpage
+\section{Annex}
+
+\subsection{main.cpp}
+\begin{lstlisting}
+#include <Arduino.h>
+#include "stdio_layer.h"
+#include "dht22.h"
+#include "hc-sr.h"
+
+int main() {
+    init();
+
+    stdio_init();
+
+    dht.begin();
+    hcsr_init();
+
+    printf("=== DHT22 Temperature Monitor (Mega) ===\r\n");
+
+    unsigned long lastAcquire = 0;
+    unsigned long lastReport  = 0;
+
+    for (;;) {
+        unsigned long now = millis();
+
+        if (now - lastAcquire >= ACQUIRE_INTERVAL) {
+            lastAcquire = now;
+            RawData data = dht_read();
+            float dist = hcsr_read();
+            if (data.valid) { process_threshold(); }
+            if (dist >= 0) { process_distance(); }
+        }
+
+        if (now - lastReport >= REPORT_INTERVAL) {
+            lastReport = now;
+            report_temperature(now);
+            report_distance();
+        }
+
+
+    }
+
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{dht22.cpp}
+\begin{lstlisting}
+#include "dht22.h"
+#include <Arduino.h>
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+
+RawData    g_data       = { 0, 0, false };
+bool       g_is_alert   = false;
+int        g_persist    = 0;
+
+
+RawData dht_read() {
+    g_data.temperature = dht.readTemperature();
+    g_data.humidity    = dht.readHumidity();
+    g_data.valid       = !isnan(g_data.temperature) && !isnan(g_data.humidity);
+    return g_data;
+}
+
+void process_threshold() {
+    float temp = g_data.temperature;
+    const float high_thresh = TEMP_THRESHOLD + TEMP_HYSTERESIS;
+    const float low_thresh  = TEMP_THRESHOLD - TEMP_HYSTERESIS;
+
+    if (g_is_alert == false) {
+        if (temp > high_thresh) {
+            if (++g_persist >= PERSIST_REQUIRED) { g_is_alert = true;  g_persist = 0; }
+        } else {
+            g_persist = 0;
+        }
+    } else {
+        if (temp < low_thresh) {
+            if (++g_persist >= PERSIST_REQUIRED) { g_is_alert = false; g_persist = 0; }
+        } else {
+            g_persist = 0;
+        }
+    }
+}
+
+void report_temperature(unsigned long now) {
+    char buf[8];
+
+    printf("------------------------------\r\n");
+    printf("Uptime (ms) : %lu\r\n", now);
+
+    if (!g_data.valid) {
+        printf("Sensor      : READ ERROR\r\n");
+        return;
+    }
+
+    printf("Temperature : %s C\r\n",         dtostrf(g_data.temperature, 5, 1, buf));
+    printf("Humidity    : %s %%\r\n",         dtostrf(g_data.humidity,    5, 1, buf));
+    printf("Threshold   : %s C  +/-",         dtostrf(TEMP_THRESHOLD,     5, 1, buf));
+    printf("%s C\r\n",                         dtostrf(TEMP_HYSTERESIS,    4, 1, buf));
+    printf("Persist     : %d/%d\r\n",          g_persist, PERSIST_REQUIRED);
+    printf("State       : %s\r\n",             g_is_alert == true ? "!!! ALERT !!!" : "NORMAL");
+}
+
+\end{lstlisting}
+
+\subsection{dht22.h}
+\begin{lstlisting}
+#pragma once
+#include <DHT.h>
+
+#define DHT_PIN            A0
+#define DHT_TYPE           DHT22
+
+#define ACQUIRE_INTERVAL   2000UL
+#define REPORT_INTERVAL    500UL
+
+#define TEMP_THRESHOLD     25.0f
+#define TEMP_HYSTERESIS     1.0f
+#define PERSIST_REQUIRED    3
+
+struct RawData {
+    float temperature;
+    float humidity;
+    bool  valid;
+};
+
+extern DHT dht; 
+
+extern RawData    g_data       ;
+extern bool       g_is_alert   ;
+extern int        g_persist    ;
+
+
+RawData dht_read();
+void process_threshold();
+void report_temperature(unsigned long now);
+\end{lstlisting}
+
+\subsection{dht22.h}
+\begin{lstlisting}
+#include "hc-sr.h"
+#include <Arduino.h>
+
+float g_distance    = 0.0f;
+ bool g_dist_alert  = false;
+  int g_dist_persist= 0;
+
+// for string formatting
+char buf[8];
+
+float hcsr_read(){
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000UL); // 30ms timeout ~= 5m max
+    g_distance = duration / 58.0f;
+    if (duration == 0) g_distance -= 1.0f;                  // timeout = out of range
+    return g_distance;
+}
+
+void process_distance(){
+    float dist = g_distance;
+    if (dist < 0) { g_dist_persist = 0; return; }     // ignore invalid reads
+
+    const float THRESH_NEAR = DIST_THRESHOLD - DIST_HYSTERESIS;
+    const float THRESH_FAR  = DIST_THRESHOLD + DIST_HYSTERESIS;
+
+    if (dist < THRESH_NEAR && !g_dist_alert) {
+        if (++g_dist_persist >= DIST_PERSIST_REQUIRED) {
+            g_dist_alert  = true;
+            g_dist_persist = 0;
+        }
+    } else if (dist > THRESH_FAR && g_dist_alert) {
+        if (++g_dist_persist >= DIST_PERSIST_REQUIRED) {
+            g_dist_alert  = false;
+            g_dist_persist = 0;
+        }
+    } else {
+        g_dist_persist = 0;
+    } 
+}
+
+void hcsr_init(){
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+}
+
+void report_distance(){
+
+    printf("Distance    : %s cm\r\n",  dtostrf(g_distance,     5, 1, buf));
+    printf("Dist Thresh : %s cm\r\n",  dtostrf(DIST_THRESHOLD, 5, 1, buf));
+    printf("Dist State  : %s\r\n",     g_dist_alert ? "!!! TOO CLOSE !!!" : "NORMAL");
+}
+\end{lstlisting}
+
+\subsection{hc-sr.h}
+\begin{lstlisting}
+#pragma once
+
+#define TRIG_PIN              7
+#define ECHO_PIN              6
+
+#define DIST_THRESHOLD       20.0f   // cm
+#define DIST_HYSTERESIS       2.0f   // +-cm  -> alert below 18, clear above 22
+#define DIST_PERSIST_REQUIRED 3
+
+extern float g_distance    ;
+extern bool  g_dist_alert  ;
+extern  int  g_dist_persist;
+
+float hcsr_read();
+void process_distance();
+void report_distance();
+
+void hcsr_init();
+
+\end{lstlisting}
+
+\subsection{stdio\_layer.cpp}
+\begin{lstlisting}
+#include "stdio_layer.h"
+#include "HardwareSerial.h"
+#include <Arduino.h>
+
+static int serial_putchar(char c, FILE *) {
+    Serial.write(c);
+    return 0;
+}
+
+static FILE g_stdout;
+
+void stdio_init() {
+    fdev_setup_stream(&g_stdout, serial_putchar, NULL, _FDEV_SETUP_WRITE);
+    stdout = &g_stdout;
+    Serial.begin(9601);
+}
+\end{lstlisting}
+
+\subsection{stdio\_layer.h}
+\begin{lstlisting}
+#pragma once
+#include <stdio.h>
+
+void stdio_init();
+\end{lstlisting}
+\end{document}

@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "author": "Adrian Burduja",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-mega", "id": "mega", "top": 10.2, "left": -99.6, "attrs": {} },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -109.2,
+      "left": 61.4,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -61.2,
+      "left": 61.4,
+      "attrs": { "color": "limegreen" }
+    },
+    {
+      "type": "wokwi-lcd2004",
+      "id": "lcd1",
+      "top": -195.2,
+      "left": 303.2,
+      "attrs": { "pins": "i2c" }
+    },
+    { "type": "wokwi-membrane-keypad", "id": "keypad1", "top": -2, "left": 408.8, "attrs": {} }
+  ],
+  "connections": [
+    [ "lcd1:SCL", "mega:21", "green", [ "h0" ] ],
+    [ "lcd1:SDA", "mega:20", "green", [ "h0" ] ],
+    [ "led1:C", "mega:13", "green", [ "v0", "h-57.2" ] ],
+    [ "led2:C", "mega:12", "green", [ "v0", "h-38" ] ],
+    [ "mega:GND.1", "led1:A", "black", [ "v-19.2", "h86.2", "v-57.6" ] ],
+    [ "led2:A", "mega:GND.1", "green", [ "h19.2", "v19.2", "h-86.4", "v9.6" ] ],
+    [ "lcd1:GND", "mega:GND.1", "black", [ "h0" ] ],
+    [ "lcd1:VCC", "mega:5V.1", "red", [ "h0" ] ],
+    [ "mega:23", "keypad1:R1", "green", [ "v1.1", "h131.8", "v307.2" ] ],
+    [ "mega:25", "keypad1:R2", "green", [ "v0.95", "h122.2", "v307.2", "h124.8" ] ],
+    [ "mega:27", "keypad1:R3", "green", [ "v1.05", "h112.6", "v307.2", "h144" ] ],
+    [ "mega:29", "keypad1:R4", "green", [ "v1.15", "h103", "v307.2", "h163.2" ] ],
+    [ "mega:31", "keypad1:C1", "green", [ "h93.4", "v308.2", "h182.5" ] ],
+    [ "mega:33", "keypad1:C2", "green", [ "h83.8", "v308.3", "h201.6" ] ],
+    [ "mega:35", "keypad1:C3", "green", [ "h74.2", "v308.4", "h220.95" ] ],
+    [ "keypad1:C4", "mega:37", "green", [ "v67.2", "h-240.3", "v-308.5" ] ]
+  ],
+  "dependencies": {}
+}
