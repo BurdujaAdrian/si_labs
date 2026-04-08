@@ -1,0 +1,612 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[romanian]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{listings}
+
+\geometry{margin=2.5cm}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=fullflexible
+}
+
+\title{Lucrarea de laborator nr. 4.2\\
+Sistem de achizitie si conditionare a semnalului analogic}
+\author{Nume Prenume\\Grupa}
+\date{\today}
+
+\begin{document}
+\begin{titlepage}
+\begin{center}
+\vspace*{1cm}
+{\Large Technical University of Moldova}\\[0.5cm]
+{\Large Faculty of Computers, Informatics and Microelectronics}\\[2cm]
+{\Huge\bfseries Laboratory Work No. 4.2}\\[1cm]
+{\Large\bfseries Embedded Systems:\\
+Analog Signal Acquisition and Conditioning\\
+with Periodic STDIO Reporting}\\[3.5cm]
+\begin{flushright}
+\begin{tabular}{ll}
+\textbf{Elaborated:} & \\
+std. gr. FAF-231 & Burduja Adrian \\[1cm]
+\textbf{Verified:} & \\
+asist. univ. & Alexei Martîniuc \\ & \\
+\end{tabular}
+\end{flushright}
+\vfill
+{\Large Chișinău -- 2026}
+\end{center}
+\end{titlepage}
+\newpage
+
+%-------------------------------------------------
+\section{Task Analysis and Technological Context}
+
+\subsection{Domain Analysis and Technological Context}
+Sensor-based embedded systems require more than raw data acquisition. In real applications,
+sensor signals are subject to noise, measurement outliers, and physical range violations that
+must be handled before the data can be used reliably. Signal conditioning pipelines — comprising
+saturation, median filtering, and weighted averaging — are standard practice in industrial
+monitoring, HVAC control, and robotics.
+
+This work implements a periodic acquisition and conditioning pipeline for two sensors:
+a DHT22 temperature and humidity sensor, and an HC-SR04 ultrasonic distance sensor.
+The conditioned values are reported via a STDIO serial interface at a configurable interval.
+
+\subsection{External Resources and Bibliographic References}
+The following resources were used:
+\begin{itemize}
+    \item documentation of the Arduino Mega (ATmega2560) microcontroller;
+    \item DHT22 sensor datasheet;
+    \item HC-SR04 ultrasonic sensor datasheet;
+    \item AVR-libc documentation (\texttt{dtostrf}, \texttt{fdev\_setup\_stream});
+    \item educational materials provided within the course;
+    \item Claude (Anthropic) for assistance with code generation and debugging.
+\end{itemize}
+
+\subsection{Analysis of Components and Used Resources}
+The system uses:
+\begin{itemize}
+    \item Arduino Mega (ATmega2560) microcontroller;
+    \item DHT22 sensor on pin A0 — temperature ($-40$\,°C to $80$\,°C) and humidity ($0$--$100$\,\%);
+    \item HC-SR04 ultrasonic sensor on TRIG=7, ECHO=6 — distance ($2$--$400$\,cm);
+    \item STDIO interface via serial port at 9600 baud;
+    \item software resources: circular buffers, conditioning pipeline, millis-based scheduling.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Definition of Technical Requirements and Test Scenarios}
+
+\subsection{Application Objectives}
+The main objective is the design and implementation of an application that:
+\begin{itemize}
+    \item periodically acquires raw data from both sensors;
+    \item applies a conditioning pipeline: saturation, median filter, weighted average;
+    \item detects threshold crossings with hysteresis and persistence debouncing;
+    \item reports all intermediate and final values via STDIO at a configurable interval.
+\end{itemize}
+
+\subsection{Functional and Non-Functional Requirements}
+
+\textbf{Functional requirements:}
+\begin{itemize}
+    \item acquisition of temperature, humidity, and distance at a configurable interval;
+    \item saturation of raw values to sensor physical limits;
+    \item median filter over a window of 5 samples to suppress salt-and-pepper noise;
+    \item weighted average giving higher weight to newer samples;
+    \item threshold alerting with hysteresis ($\pm1$\,°C for temperature, $\pm2$\,cm for distance);
+    \item persistence counter requiring 3 consecutive confirming samples before state change;
+    \item structured STDIO report at 2000\,ms interval.
+\end{itemize}
+
+\textbf{Non-functional requirements:}
+\begin{itemize}
+    \item modular code separated into independent \texttt{.cpp}/\texttt{.h} files;
+    \item no dynamic memory allocation;
+    \item \texttt{printf}-based reporting via AVR-libc \texttt{fdev\_setup\_stream};
+    \item float formatting via \texttt{dtostrf} due to AVR-libc \texttt{\%f} limitations.
+\end{itemize}
+
+\subsection{Test Scenarios and Validation Criteria}
+\begin{itemize}
+    \item temperature above $26$\,°C for 3 consecutive samples triggers ALERT state;
+    \item temperature below $24$\,°C for 3 consecutive samples clears ALERT state;
+    \item temperature in the dead zone [$24$\,°C, $26$\,°C] keeps current state unchanged;
+    \item distance below $18$\,cm for 3 consecutive samples triggers TOO CLOSE alert;
+    \item median output is stable under single-sample outliers;
+    \item weighted output tracks trends faster than a simple moving average.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Architectural Design and Behavioral Modeling}
+
+\subsection{System Components}
+\begin{itemize}
+    \item \textbf{Acquisition layer} — \texttt{dht\_read()}, \texttt{hcsr\_read()} read raw sensor values;
+    \item \textbf{Conditioning layer} — \texttt{condition\_value()} applies saturation, median, weighted average;
+    \item \textbf{Threshold layer} — \texttt{process\_threshold()}, \texttt{process\_distance()} implement hysteresis and persistence;
+    \item \textbf{Reporting layer} — \texttt{report\_temperature()}, \texttt{report\_distance()} format and print via STDIO;
+    \item \textbf{STDIO layer} — \texttt{stdio\_init()} binds \texttt{printf} to the hardware UART.
+\end{itemize}
+
+\subsection{HW--SW Layered Architecture}
+The application is organized into the following layers:
+\begin{itemize}
+    \item hardware layer (DHT22, HC-SR04, UART);
+    \item HAL layer (GPIO, \texttt{pulseIn}, \texttt{delayMicroseconds});
+    \item conditioning layer (circular buffer, median sort, weighted sum);
+    \item application layer (threshold logic, reporting).
+\end{itemize}
+
+\subsection{Conditioning Pipeline}
+For each sensor value, the pipeline executes in order:
+
+\begin{enumerate}
+    \item \textbf{Saturation}: clamp raw value to physical sensor limits.
+    \[
+        v_{sat} = \min(\max(v_{raw},\, v_{min}),\, v_{max})
+    \]
+
+    \item \textbf{Median filter}: insert saturated value into a circular buffer of size $N=5$,
+    sort a copy, return the middle element. Suppresses isolated outliers (salt-and-pepper noise).
+
+    \item \textbf{Weighted average}: assign weight $w_i = i+1$ to the $i$-th oldest sample
+    (newest sample gets weight $N$).
+    \[
+        \bar{v} = \frac{\sum_{i=0}^{N-1}(i+1)\cdot v_i}{\sum_{i=0}^{N-1}(i+1)}
+    \]
+\end{enumerate}
+
+\subsection{Threshold and Hysteresis Logic}
+To avoid alert oscillation near the threshold, two separate crossing levels are used:
+
+\begin{itemize}
+    \item Alert activates only when value exceeds $T_{high} = T_{threshold} + T_{hysteresis}$;
+    \item Alert clears only when value drops below $T_{low} = T_{threshold} - T_{hysteresis}$;
+    \item Values in the dead zone $[T_{low}, T_{high}]$ leave the state unchanged.
+    \item State only changes after \texttt{PERSIST\_REQUIRED} consecutive confirming samples.
+\end{itemize}
+
+%-------------------------------------------------
+\section{Electrical Schematic Design and Simulation}
+
+\subsection{Connections and Component Sizing}
+\begin{itemize}
+    \item DHT22: data pin connected to A0, with a $10\,k\Omega$ pull-up resistor to $+5\,V$;
+    \item HC-SR04: TRIG on pin 7 (output), ECHO on pin 6 (input), powered at $5\,V$;
+    \item Serial output via USB at 9600 baud.
+\end{itemize}
+
+\subsection{Simulation}
+The application was simulated in SimulIDE. Both sensors were configured with virtual
+stimulus values to verify the conditioning pipeline and alert logic.
+
+\subsection{Execution on Real Hardware}
+Sample serial output:
+\begin{lstlisting}
+=== DHT22 Temperature Monitor (Mega) ===
+------------------------------
+Uptime (ms) : 2001
+Temperature :  24.5 C
+Humidity    :  58.0 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 0/3
+State       : NORMAL
+Distance    :  35.2 cm
+Dist Thresh :  20.0 cm
+Dist State  : NORMAL
+------------------------------
+Uptime (ms) : 4002
+Temperature :  26.3 C
+Humidity    :  57.5 %
+Threshold   :  25.0 C  +/- 1.0 C
+Persist     : 1/3
+State       : NORMAL
+\end{lstlisting}
+
+%-------------------------------------------------
+\section{Modular Software Implementation}
+
+\subsection{Project Structure}
+\begin{lstlisting}
+lab4-2.ino
+main.cpp
+conditioning.cpp
+conditioning.h
+dht22.cpp
+dht22.h
+hc-sr.cpp
+hc-sr.h
+stdio_layer.cpp
+stdio_layer.h
+\end{lstlisting}
+
+\subsection{HW--SW Interface}
+Sensor access is encapsulated behind \texttt{dht\_read()} and \texttt{hcsr\_read()},
+which expose only the processed value to the rest of the application.
+The conditioning function \texttt{condition\_value()} is fully generic and reused
+for all three measured quantities.
+
+\subsection{Scheduling}
+No RTOS is used. Two \texttt{millis()}-based intervals control execution:
+\begin{itemize}
+    \item \texttt{ACQUIRE\_INTERVAL = 400\,ms} — sensor read and conditioning;
+    \item \texttt{REPORT\_INTERVAL = 2000\,ms} — STDIO report.
+\end{itemize}
+
+\subsection{Comments and Documentation}
+The code is structured into clearly named modules. Each module exposes only
+the functions needed by other modules via its header file.
+
+%-------------------------------------------------
+\section{Simulation, Testing, and Validation}
+
+\subsection{Testing}
+Tests were performed by providing controlled sensor stimulus in SimulIDE and
+verifying that the serial output reflected the expected conditioning and alert behavior.
+
+\subsection{Results and Observations}
+\begin{itemize}
+    \item The median filter correctly rejected single-sample outliers without affecting steady-state output;
+    \item The weighted average responded faster to temperature trends than a simple average;
+    \item Hysteresis prevented alert flickering when the temperature hovered near the threshold;
+    \item The persistence counter eliminated false alerts from transient spikes.
+\end{itemize}
+
+\subsection{Observed Issues and Fixes}
+\begin{itemize}
+    \item AVR-libc \texttt{printf} does not support \texttt{\%f} without special linker flags;
+          \texttt{dtostrf()} was used instead;
+    \item \texttt{LOW} and \texttt{HIGH} are macros in \texttt{Arduino.h}; local variables
+          were renamed to \texttt{THRESH\_LOW} / \texttt{THRESH\_HIGH} to avoid silent
+          macro substitution;
+    \item Temperature and humidity conditioning windows were initially sharing the same
+          position and count variables, causing corruption; they were separated into
+          independent pairs (\texttt{g\_temp\_pos}/\texttt{g\_temp\_cnt} and
+          \texttt{g\_humi\_pos}/\texttt{g\_humi\_cnt}).
+\end{itemize}
+
+%-------------------------------------------------
+\section{Conclusions}
+
+The developed application demonstrates a complete sensor acquisition and signal conditioning
+pipeline on a resource-constrained AVR microcontroller. The modular architecture cleanly
+separates acquisition, conditioning, threshold detection, and reporting. The use of a generic
+\texttt{condition\_value()} function for all sensors reduces code duplication and simplifies
+future extension to additional sensors. The solution is suitable as a foundation for more
+complex embedded monitoring systems.
+
+\newpage
+\section{Annex}
+
+\subsection{conditioning.h}
+\begin{lstlisting}
+#pragma once
+
+#define MEDIAN_WINDOW 5
+
+struct ConditionResults {
+    float raw, saturated, median, weighted;
+};
+
+ConditionResults condition_value(
+    float raw,
+    float min_sat, float max_sat,
+    float window[], int *window_pos, int *window_count
+);
+\end{lstlisting}
+
+\subsection{conditioning.cpp}
+\begin{lstlisting}
+#include "conditioning.h"
+#include <Arduino.h>
+
+static float saturate(float val, float mn, float mx) {
+    if (val < mn) return mn;
+    if (val > mx) return mx;
+    return val;
+}
+
+static float median(float window[], int count) {
+    float buff[MEDIAN_WINDOW];
+    memcpy(buff, window, count * sizeof(float));
+    for (int i = 1; i < count; i++) {
+        float key = buff[i];
+        int j = i - 1;
+        while (j >= 0 && buff[j] > key) { buff[j+1] = buff[j]; j--; }
+        buff[j+1] = key;
+    }
+    return buff[count / 2];
+}
+
+static float weighted(float window[], int pos, int count) {
+    float sum = 0, weight = 0;
+    for (int i = 0; i < count; i++) {
+        int   p = (pos + i) % count;
+        float w = (float)(i + 1);
+        sum    += window[p] * w;
+        weight += w;
+    }
+    return sum / weight;
+}
+
+ConditionResults condition_value(
+    float raw, float min_sat, float max_sat,
+    float window[], int *window_pos, int *window_count
+) {
+    ConditionResults res = {};
+    res.raw       = raw;
+    res.saturated = saturate(raw, min_sat, max_sat);
+    window[*window_pos] = res.saturated;
+    *window_pos         = (*window_pos + 1) % MEDIAN_WINDOW;
+    if (*window_count < MEDIAN_WINDOW) (*window_count)++;
+    res.median   = median(window, *window_count);
+    res.weighted = weighted(window, *window_pos, *window_count);
+    return res;
+}
+\end{lstlisting}
+
+\subsection{dht22.h}
+\begin{lstlisting}
+#pragma once
+#include <DHT.h>
+#include "conditioning.h"
+
+#define DHT_PIN            A0
+#define DHT_TYPE           DHT22
+
+#define TEMP_THRESHOLD     25.0f
+#define TEMP_HYSTERESIS     1.0f
+#define PERSIST_REQUIRED    3
+
+struct RawData {
+    float temperature;
+    float humidity;
+    bool  valid;
+};
+
+extern DHT     dht;
+extern RawData g_data;
+extern bool    g_is_alert;
+extern int     g_persist;
+
+RawData          dht_read();
+void             process_threshold();
+void             report_temperature(unsigned long now);
+ConditionResults dht_condition_temp();
+ConditionResults dht_condition_humi();
+\end{lstlisting}
+
+\subsection{dht22.cpp}
+\begin{lstlisting}
+#include "dht22.h"
+#include "conditioning.h"
+#include <Arduino.h>
+
+char buf[8];
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+RawData g_data     = { 0, 0, false };
+bool    g_is_alert = false;
+int     g_persist  = 0;
+
+float g_temps[MEDIAN_WINDOW], g_humis[MEDIAN_WINDOW];
+int   g_temp_pos = 0, g_temp_cnt = 0;
+int   g_humi_pos = 0, g_humi_cnt = 0;
+
+RawData dht_read() {
+    g_data.temperature = dht.readTemperature();
+    g_data.humidity    = dht.readHumidity();
+    g_data.valid = !isnan(g_data.temperature) && !isnan(g_data.humidity);
+    return g_data;
+}
+
+ConditionResults dht_condition_temp() {
+    if (!g_data.valid) return ConditionResults{};
+    return condition_value(g_data.temperature, -40, 80,
+                           g_temps, &g_temp_pos, &g_temp_cnt);
+}
+
+ConditionResults dht_condition_humi() {
+    if (!g_data.valid) return ConditionResults{};
+    return condition_value(g_data.humidity, 0, 100,
+                           g_humis, &g_humi_pos, &g_humi_cnt);
+}
+
+void process_threshold() {
+    float temp = g_data.temperature;
+    const float high_thresh = TEMP_THRESHOLD + TEMP_HYSTERESIS;
+    const float low_thresh  = TEMP_THRESHOLD - TEMP_HYSTERESIS;
+    if (!g_is_alert) {
+        if (temp > high_thresh) {
+            if (++g_persist >= PERSIST_REQUIRED)
+                { g_is_alert = true;  g_persist = 0; }
+        } else { g_persist = 0; }
+    } else {
+        if (temp < low_thresh) {
+            if (++g_persist >= PERSIST_REQUIRED)
+                { g_is_alert = false; g_persist = 0; }
+        } else { g_persist = 0; }
+    }
+}
+
+void report_temperature(unsigned long now) {
+    printf("------------------------------\r\n");
+    printf("Uptime (ms) : %lu\r\n", now);
+    if (!g_data.valid) { printf("Sensor : READ ERROR\r\n"); return; }
+    printf("Temperature : %s C\r\n", dtostrf(g_data.temperature, 5, 1, buf));
+    printf("Humidity    : %s %%\r\n", dtostrf(g_data.humidity,   5, 1, buf));
+    printf("Threshold   : %s C  +/-", dtostrf(TEMP_THRESHOLD,    5, 1, buf));
+    printf("%s C\r\n",                 dtostrf(TEMP_HYSTERESIS,   4, 1, buf));
+    printf("Persist     : %d/%d\r\n",  g_persist, PERSIST_REQUIRED);
+    printf("State       : %s\r\n",
+           g_is_alert ? "!!! ALERT !!!" : "NORMAL");
+}
+\end{lstlisting}
+
+\subsection{hc-sr.h}
+\begin{lstlisting}
+#pragma once
+#include "conditioning.h"
+
+#define TRIG_PIN              7
+#define ECHO_PIN              6
+
+#define DIST_THRESHOLD       20.0f
+#define DIST_HYSTERESIS       2.0f
+#define DIST_PERSIST_REQUIRED 3
+
+#define HCSR_DIST_MIN  2.0f
+#define HCSR_DIST_MAX  400.0f
+
+extern float g_distance;
+extern bool  g_dist_alert;
+extern int   g_dist_persist;
+
+float            hcsr_read();
+ConditionResults hcsr_condition_dist();
+void             process_distance();
+void             report_distance();
+void             hcsr_init();
+\end{lstlisting}
+
+\subsection{hc-sr.cpp}
+\begin{lstlisting}
+#include "hc-sr.h"
+#include "conditioning.h"
+#include <Arduino.h>
+
+char hcsr_buf[8];
+
+float g_distance    = 0.0f;
+bool  g_dist_alert  = false;
+int   g_dist_persist = 0;
+
+float g_dists[MEDIAN_WINDOW];
+int   g_dist_pos = 0, g_dist_cnt = 0;
+
+float hcsr_read() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+    unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000UL);
+    if (duration == 0) { g_distance = -1.0f; return g_distance; }
+    g_distance = duration / 58.0f;
+    return g_distance;
+}
+
+ConditionResults hcsr_condition_dist() {
+    if (g_distance < 0) return ConditionResults{};
+    return condition_value(g_distance, HCSR_DIST_MIN, HCSR_DIST_MAX,
+                           g_dists, &g_dist_pos, &g_dist_cnt);
+}
+
+void process_distance() {
+    float dist = g_distance;
+    if (dist < 0) { g_dist_persist = 0; return; }
+    const float THRESH_NEAR = DIST_THRESHOLD - DIST_HYSTERESIS;
+    const float THRESH_FAR  = DIST_THRESHOLD + DIST_HYSTERESIS;
+    if (dist < THRESH_NEAR && !g_dist_alert) {
+        if (++g_dist_persist >= DIST_PERSIST_REQUIRED)
+            { g_dist_alert = true;  g_dist_persist = 0; }
+    } else if (dist > THRESH_FAR && g_dist_alert) {
+        if (++g_dist_persist >= DIST_PERSIST_REQUIRED)
+            { g_dist_alert = false; g_dist_persist = 0; }
+    } else { g_dist_persist = 0; }
+}
+
+void hcsr_init() {
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+}
+
+void report_distance() {
+    printf("Distance    : %s cm\r\n",
+           dtostrf(g_distance,     5, 1, hcsr_buf));
+    printf("Dist Thresh : %s cm\r\n",
+           dtostrf(DIST_THRESHOLD, 5, 1, hcsr_buf));
+    printf("Dist State  : %s\r\n",
+           g_dist_alert ? "!!! TOO CLOSE !!!" : "NORMAL");
+}
+\end{lstlisting}
+
+\subsection{stdio\_layer.cpp}
+\begin{lstlisting}
+#include "stdio_layer.h"
+#include <Arduino.h>
+
+static int serial_putchar(char c, FILE *) {
+    Serial.write(c);
+    return 0;
+}
+
+static FILE g_stdout;
+
+void stdio_init() {
+    fdev_setup_stream(&g_stdout, serial_putchar, NULL, _FDEV_SETUP_WRITE);
+    stdout = &g_stdout;
+    Serial.begin(9600);
+}
+\end{lstlisting}
+
+\subsection{main.cpp}
+\begin{lstlisting}
+#include <Arduino.h>
+#include "conditioning.h"
+#include "stdio_layer.h"
+#include "dht22.h"
+#include "hc-sr.h"
+
+#define ACQUIRE_INTERVAL 400UL
+#define REPORT_INTERVAL  2000UL
+
+int main() {
+    init();
+    stdio_init();
+    dht.begin();
+    hcsr_init();
+    printf("=== DHT22 Temperature Monitor (Mega) ===\r\n");
+
+    unsigned long lastAcquire = 0;
+    unsigned long lastReport  = 0;
+
+    for (;;) {
+        unsigned long now = millis();
+
+        if (now - lastAcquire >= ACQUIRE_INTERVAL) {
+            lastAcquire = now;
+            RawData data = dht_read();
+            float   dist = hcsr_read();
+            if (data.valid) {
+                g_data.temperature = dht_condition_temp().weighted;
+                g_data.humidity    = dht_condition_humi().weighted;
+                process_threshold();
+            }
+            if (dist >= 0) {
+                g_distance = hcsr_condition_dist().weighted;
+                process_distance();
+            }
+        }
+
+        if (now - lastReport >= REPORT_INTERVAL) {
+            lastReport = now;
+            report_temperature(now);
+            report_distance();
+        }
+    }
+
+    return 0;
+}
+\end{lstlisting}
+
+\end{document}
