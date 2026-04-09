@@ -4,5 +4,5 @@
 
 void motor_setup();
 void motor_set_speed(int val);
-int motor_get_speed();
+unsigned int motor_get_speed();
 void motor_switch_pwm();

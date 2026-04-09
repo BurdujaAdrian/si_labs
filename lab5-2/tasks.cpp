@@ -10,7 +10,7 @@ ulong	motor_time,
 	report_time;
 
 // flags
-bool conv_fail = false, no_input;
+bool conv_fail, no_input, overflow,underflow;
 
 void tasks_init(){
 	motor_time = millis() + 0;
@@ -18,7 +18,7 @@ void tasks_init(){
 	report_time =millis() + 2000; 
 }
 
-#define MOTOR_REC 1000 //milis
+#define MOTOR_REC 100 //milis
 void motor_task(){
 	ulong now = millis();
 	if (now - motor_time >= MOTOR_REC) {
@@ -27,10 +27,10 @@ void motor_task(){
 	}
 }
 
-#define INPUT_REC 100 // milis
+#define INPUT_REC 1000 // milis
 
 // unsigned long input_time; is actually defined above; ulong is alias for unsighend long
-const int weights[5] = {7,6,5,5}; // in powers of 2
+const int weights[5] = {6,5,4,3,3}; // in powers of 2
 char input_buffer[4];
 int  input_history[5];
 void input_task(){
@@ -56,22 +56,27 @@ void input_task(){
 			// saturation
 			char* end;
 			int input = strtol(input_buffer,&end,10); 
+			
 			conv_fail = (end == input_buffer);
+
 			if (!conv_fail){
-				if(input <   0) input =   0;
-				if(input > 255) input = 255;
+				underflow = input <   0;
+				if(underflow) { input =   0; }
+
+				overflow = input > 255;
+				if(overflow) { input = 255; }
 
 				input_history[0] = input;
-			}
+			} 	
 		} 
 
 
-		// there's no need for impulse noise filter for stdio
+		// there's no need for impulse noise filter for serial input
 
 		// weighted average
 		int avg = 0;
 		for(int i=0; i<5; ++i){ avg += input_history[i] << weights[i]; }
-		avg >>= 8;
+		avg >>= 7;
 
 		// smooth acceleration
 		int curr = motor_get_speed();
@@ -81,20 +86,46 @@ void input_task(){
 		*  ra = 1 / a = 20 millis / 1 PWN
 		*  dv = dt / ra
 		*/
-		#define ra 20;
+		#define ra 20
 		int dv = 0;
-		if (curr < avg) {
+		if ((abs(curr - avg)) <= INPUT_REC/ra){
+			// if close enough, just set it straightup
+			dv = avg - curr;
+			printf("%d - %d = %d\n",curr,avg,dv);
+		} else if (curr < avg) {
 			// has to accelerate;
 			dv = INPUT_REC / ra;
+			printf("%d / %d = %d\n", INPUT_REC, ra, dv);
 		} else if (curr > avg) {
 			// has to decelerate;
 			dv = - INPUT_REC / ra;
+			printf("- %d / %d = %d\n", INPUT_REC, ra, dv);
 		}
 
+		printf("curr:%d, avg:  %d; dv: %d\n",curr,avg,dv);
 		motor_set_speed(curr+dv);
 	}
 }
 
+// these are defined somewhere above this code: bool conv_fail, no_input, overflow,underflow; ulong report_time;
 #define REPORT_REC 2000 //milis
 void report_task(){
+
+	ulong now = millis();
+	if (now - report_time >= REPORT_REC) {
+		report_time = now;
+		printf("status: %s%s%s%s; speed: %d\n",
+			conv_fail  ? "conv_fail "  : "",
+			no_input   ? "no_input "   : "",
+			overflow   ? "overflow "   : "",
+			underflow  ? "underflow "  : "",
+	 		motor_get_speed()
+		);
+
+		printf("Input history: {");
+		for (int i =0; i<5; ++i) {
+			printf("%d,", input_history[i]);
+		}
+		printf("}\n\n");
+	}
 }
