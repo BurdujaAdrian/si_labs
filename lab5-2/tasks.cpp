@@ -1,6 +1,7 @@
 #include "tasks.h"
 #include "Arduino.h"
 #include "motor.h"
+#include "rot_enc.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -10,12 +11,14 @@ ulong	motor_time,
 	report_time;
 
 // flags
-bool conv_fail, no_input, overflow,underflow;
+bool conv_fail, no_input, overflow,underflow, encoder_input;
 
 void tasks_init(){
 	motor_time = millis() + 0;
 	input_time = millis() + 1000;
 	report_time =millis() + 2000; 
+
+	encoder_setup();
 }
 
 #define MOTOR_REC 100 //milis
@@ -35,7 +38,7 @@ char input_buffer[4];
 int  input_history[5];
 void input_task(){
 	ulong now = millis();
-	if (now - input_time >= INPUT_REC) {
+	if(now - input_time >= INPUT_REC) {
 		input_time = now;
 
 		// fgets will return error (null) if no input was provided
@@ -67,8 +70,21 @@ void input_task(){
 				if(overflow) { input = 255; }
 
 				input_history[0] = input;
-			} 	
-		} 
+			}
+		} else {
+			conv_fail = false;
+		}
+
+		//BONUS: adjust the last input via rotary encoder
+		int delta = encoder_read();
+		encoder_input = delta != 0; 
+		if (encoder_input) {
+			int input = input_history[0] + delta;
+			if(input <   0) input =   0;
+			if(input > 255) input = 255;
+			input_history[0] = input;
+
+		}
 
 
 		// there's no need for impulse noise filter for serial input
@@ -83,26 +99,22 @@ void input_task(){
 		/* a = dv / dt
 		*  dv = a * dt
 		*  a = 1 PWM / 20 millis
-		*  ra = 1 / a = 20 millis / 1 PWN
+		*  ra = 1 / a = 20 millis / 1 PWN\
 		*  dv = dt / ra
 		*/
 		#define ra 20
 		int dv = 0;
-		if ((abs(curr - avg)) <= INPUT_REC/ra){
+		if (abs(curr - avg) <= INPUT_REC/ra){
 			// if close enough, just set it straightup
 			dv = avg - curr;
-			printf("%d - %d = %d\n",curr,avg,dv);
 		} else if (curr < avg) {
 			// has to accelerate;
 			dv = INPUT_REC / ra;
-			printf("%d / %d = %d\n", INPUT_REC, ra, dv);
 		} else if (curr > avg) {
 			// has to decelerate;
 			dv = - INPUT_REC / ra;
-			printf("- %d / %d = %d\n", INPUT_REC, ra, dv);
 		}
 
-		printf("curr:%d, avg:  %d; dv: %d\n",curr,avg,dv);
 		motor_set_speed(curr+dv);
 	}
 }
@@ -116,7 +128,8 @@ void report_task(){
 		report_time = now;
 		printf("status: %s%s%s%s; speed: %d\n",
 			conv_fail  ? "conv_fail "  : "",
-			no_input   ? "no_input "   : "",
+			no_input && encoder_input  ? "encoder_input "   : 
+	 			no_input ? "no_input": "",
 			overflow   ? "overflow "   : "",
 			underflow  ? "underflow "  : "",
 	 		motor_get_speed()
