@@ -6,14 +6,28 @@
 <mainCompProps MainCompId="mega2560-63" Frequency="16 MHz" Program="build/arduino.avr.mega/lab5-2.ino.hex" Auto_Load="true" saveEepr="false" MainMcu="true" SerialMon="-1" />
 </item>
 
-<item itemtype="DcMotor" CircId="DcMotor-96" mainComp="false" Show_id="true" Show_Val="false" Pos="-12,-200" rotation="0" hflip="1" vflip="1" label="DcMotor-96" idLabPos="-22,-48" labelrot="0" valLabPos="-14,36" valLabRot="0" RPM_Nominal="60 _RPM" Volt_Nominal="5 V" Resistance="100 Ω" />
+<item itemtype="DcMotor" CircId="DcMotor-96" mainComp="false" Show_id="true" Show_Val="false" Pos="-12,-256" rotation="0" hflip="1" vflip="1" label="DcMotor-96" idLabPos="-22,-48" labelrot="0" valLabPos="-14,36" valLabRot="0" RPM_Nominal="60 _RPM" Volt_Nominal="5 V" Resistance="100 Ω" />
+
+<item itemtype="KY040" CircId="KY040-98" mainComp="false" ShowProp="Steps" Show_id="false" Show_Val="true" Pos="-176,-152" rotation="0" hflip="1" vflip="1" label="KY040-98" idLabPos="-34,20" labelrot="-90" valLabPos="-16,20" valLabRot="0" Steps="20" />
+
+<item itemtype="Subcircuit" CircId="L298P-109" mainComp="false" Show_id="true" Show_Val="false" Pos="-252,-264" rotation="0" hflip="1" vflip="1" label="L298P-109" idLabPos="0,-20" labelrot="0" valLabPos="-16,20" valLabRot="0" Input_High_V="2.5 V" Input_Low_V="2.5 V" Input_Imped="1e+09 Ω" Out_High_V="5 V" Out_Low_V="0 V" Out_Imped="40 Ω" Tpd_ps="10 ns" Tr_ps="3 ns" Tf_ps="4 ns" Logic_Symbol="true" />
 
 <item itemtype="Connector" uid="Connector-74" startpinid="SerialTerm-24-pin0" endpinid="Mega-19-0" pointList="-228,-24,-72,-24,-72,-16" />
 
 <item itemtype="Connector" uid="Connector-250" startpinid="SerialTerm-24-pin1" endpinid="Mega-19-1" pointList="-228,-8,-72,-8" />
 
-<item itemtype="Connector" uid="Connector-301" startpinid="DcMotor-96-rPin" endpinid="Mega-19-GND4" pointList="28,-200,64,-200,64,-120" />
+<item itemtype="Connector" uid="Connector-335" startpinid="KY040-98-dt" endpinid="Mega-19-3" pointList="-180,-116,-180,8,-72,8" />
 
-<item itemtype="Connector" uid="Connector-302" startpinid="Mega-19-6" endpinid="DcMotor-96-lPin" pointList="-72,32,-100,32,-100,-200,-52,-200" />
+<item itemtype="Connector" uid="Connector-336" startpinid="Mega-19-2" endpinid="KY040-98-clk" pointList="-72,0,-172,0,-172,-116" />
+
+<item itemtype="Connector" uid="Connector-340" startpinid="L298P-109-IN1" endpinid="Mega-19-6" pointList="-260,-256,-316,-256,-316,32,-72,32" />
+
+<item itemtype="Connector" uid="Connector-347" startpinid="Mega-19-GND4" endpinid="DcMotor-96-rPin" pointList="64,-120,64,-256,28,-256" />
+
+<item itemtype="Connector" uid="Connector-351" startpinid="L298P-109-OUT1" endpinid="DcMotor-96-lPin" pointList="-212,-256,-52,-256" />
+
+<item itemtype="Connector" uid="Connector-353" startpinid="KY040-98-sw" endpinid="L298P-109-EnA" pointList="-188,-116,-276,-116,-276,-216,-260,-216" />
+
+<item itemtype="Connector" uid="Connector-354" startpinid="L298P-109-Vs" endpinid="Mega-19-5V02" pointList="-212,-216,-72,-216,-72,-120" />
 
 </circuit>
