@@ -1,13 +1,11 @@
 #include "tasks.h"
 #include "Arduino.h"
-#include "motor.h"
-#include "rot_enc.h"
 #include "dht22.h"
 #include <stdlib.h>
 #include <stdio.h>
 
 typedef unsigned long ulong;
-ulong	motor_time,
+ulong	fan_time,
 	input_time,
 	report_time,
 	temp_time;
@@ -16,21 +14,28 @@ ulong	motor_time,
 bool conv_fail, no_input, overflow,underflow, encoder_input;
 
 void tasks_init(){
-	motor_time = millis() + 0;
+	fan_time = millis() + 0;
 	input_time = millis() + 1000;
 	report_time =millis() + 2000; 
 
-	encoder_setup();
 }
 
-#define MOTOR_REC 100 //milis
-void motor_task(){
-	ulong now = millis();
-	if (now - motor_time >= MOTOR_REC) {
-		motor_time = now;
-		motor_switch_pwm();
-	}
+#ifndef CONTROLL
+#define CONTROLL
+// Controll implementation
+#endif // CONTROLL
+
+
+#define CONTR_TASK_REC 100 // milis
+void controll_task(){
+	// TODO: Implement controll by turning the fan on/off if the temperature is too high/low and when it's outside the band
 }
+
+#define FAN_TASK_REC 100 // milis
+void fan_task(){
+	// TODO: Implement fanning
+}
+
 
 #define INPUT_REC 1000 // milis
 
@@ -77,18 +82,6 @@ void input_task(){
 			conv_fail = false;
 		}
 
-		//BONUS: adjust the last input via rotary encoder
-		int delta = encoder_read();
-		encoder_input = delta != 0; 
-		if (encoder_input) {
-			int input = input_history[0] + delta;
-			if(input <   0) input =   0;
-			if(input > 255) input = 255;
-			input_history[0] = input;
-
-		}
-
-
 		// there's no need for impulse noise filter for serial input
 
 		// weighted average
@@ -96,31 +89,9 @@ void input_task(){
 		for(int i=0; i<5; ++i){ avg += input_history[i] << weights[i]; }
 		avg >>= 7;
 
-		// TODO: make the target speed constant, instead update the threshold
 		int target = avg;
 
-		// smooth acceleration
-		int curr = motor_get_speed();
-		/* a = dv / dt
-		*  dv = a * dt
-		*  a = 1 PWM / 20 millis
-		*  ra = 1 / a = 20 millis / 1 PWN\
-		*  dv = dt / ra
-		*/
-		#define ra 20
-		int dv = 0;
-		if (abs(curr - target) <= INPUT_REC/ra){
-			// if close enough, just set it straightup
-			dv = target - curr;
-		} else if (curr < target) {
-			// has to accelerate;
-			dv = INPUT_REC / ra;
-		} else if (curr > target) {
-			// has to decelerate;
-			dv = - INPUT_REC / ra;
-		}
-
-		motor_set_speed(curr+dv);
+		// TODO: controll fan based on data
 	}
 }
 
@@ -130,8 +101,6 @@ void temp_task() {
     if (now - temp_time >= TEMP_REC) {
         temp_time = now;
         dht_read();
-        process_threshold();
-        if (g_is_alert) motor_set_speed(0);
     }
 }
 
@@ -148,7 +117,7 @@ void report_task(){
 	 			no_input ? "no_input": "",
 			overflow   ? "overflow "   : "",
 			underflow  ? "underflow "  : "",
-	 		motor_get_speed()
+	 		0 // TODO: put motor speed here
 		);
 
 		printf("Input history: {");

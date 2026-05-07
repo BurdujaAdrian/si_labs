@@ -4,7 +4,6 @@
 
 char buf[8];
 
-volatile float TEMP_THRESHOLD = 23;
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
@@ -33,25 +32,6 @@ ConditionResults dht_condition_humi() {
     return condition_value(g_data.humidity, 0, 100, g_humis, &g_humi_pos, &g_humi_cnt);
 }
 
-void set_threshold(float th){
-    TEMP_THRESHOLD = th;
-}
-
-void process_threshold() {
-    float temp = g_data.temperature;
-    const float high_thresh = TEMP_THRESHOLD + TEMP_HYSTERESIS;
-    const float low_thresh  = TEMP_THRESHOLD - TEMP_HYSTERESIS;
-
-    if (!g_is_alert) {
-        if (temp > high_thresh) {
-            if (++g_persist >= PERSIST_REQUIRED) { g_is_alert = true;  g_persist = 0; }
-        } else { g_persist = 0; }
-    } else {
-        if (temp < low_thresh) {
-            if (++g_persist >= PERSIST_REQUIRED) { g_is_alert = false; g_persist = 0; }
-        } else { g_persist = 0; }
-    }
-}
 
 void report_temperature(unsigned long now) {
     printf("------------------------------\r\n");
@@ -61,7 +41,6 @@ void report_temperature(unsigned long now) {
 
     printf("Temperature : %s C\r\n", dtostrf(g_data.temperature, 5, 1, buf));
     printf("Humidity    : %s %%\r\n", dtostrf(g_data.humidity,   5, 1, buf));
-    printf("Threshold   : %s C  +/-", dtostrf(TEMP_THRESHOLD,    5, 1, buf));
     printf("%s C\r\n",                 dtostrf(TEMP_HYSTERESIS,   4, 1, buf));
     printf("Persist     : %d/%d\r\n",  g_persist, PERSIST_REQUIRED);
     printf("State       : %s\r\n",     g_is_alert ? "!!! ALERT !!!" : "NORMAL");
